@@ -9,9 +9,9 @@ import wave
 import pyaudio
 import subprocess
 from datetime import datetime
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QLabel
+from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QStackedWidget, QFrame
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QPoint, QTimer, QSize
-from PyQt5.QtGui import QPainter, QPen, QColor, QCursor, QImage, QPixmap
+from PyQt5.QtGui import QPainter, QPen, QColor, QCursor, QImage, QPixmap, QFont
 import pyautogui
 
 # Import our tracker 
@@ -278,6 +278,8 @@ class RecorderThread(QThread):
              print("FFmpeg muxing failed. Audio and video kept separate.")
 
 class MagicCanvas(QMainWindow):
+    closed_signal = pyqtSignal() # Notify launcher we are done
+    
     def __init__(self):
         super().__init__()
         
@@ -330,8 +332,8 @@ class MagicCanvas(QMainWindow):
             self.stop_recording_if_active()
             self.tracker.running = False
             self.tracker.wait()
+            self.closed_signal.emit()
             self.close()
-            sys.exit(0)
         elif event_id == 6: # Swipe Left -> Prev Slide
             pyautogui.press('left')
             self.swipe_flash = 5
@@ -407,6 +409,7 @@ class MagicCanvas(QMainWindow):
             self.stop_recording_if_active()
             self.tracker.running = False
             self.tracker.wait()
+            self.closed_signal.emit()
             self.close()
         elif event.key() == Qt.Key_C:
             self.points = []
@@ -420,8 +423,176 @@ class MagicCanvas(QMainWindow):
                 self.stop_recording_if_active()
             self.update()
 
+class MagicLauncher(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("MagicFlow Dashboard")
+        self.resize(1000, 700)
+        self.setStyleSheet("background-color: #121212; color: #E0E0E0; font-family: 'Segoe UI', Arial;")
+        
+        # Main Layout
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        # Sidebar
+        self.sidebar = QListWidget()
+        self.sidebar.setFixedWidth(220)
+        self.sidebar.setStyleSheet("""
+            QListWidget { background-color: #1E1E1E; border: none; padding-top: 20px; outline: none; }
+            QListWidget::item { height: 60px; padding-left: 20px; border-left: 4px solid transparent; color: #B0B0B0; font-size: 16px; font-weight: bold; }
+            QListWidget::item:selected { background-color: #2C2C2C; border-left: 4px solid #00E676; color: #FFFFFF; }
+            QListWidget::item:hover { background-color: #252525; }
+        """)
+        self.sidebar.addItems(["Studio", "Album", "Gestures", "Shortcuts", "Help"])
+        self.sidebar.currentRowChanged.connect(self.display_page)
+        main_layout.addWidget(self.sidebar)
+        
+        # Content Area
+        self.pages = QStackedWidget()
+        main_layout.addWidget(self.pages)
+        
+        # Initialize Pages
+        self.init_studio_page()
+        self.init_album_page()
+        self.init_gestures_page()
+        self.init_shortcuts_page()
+        self.init_help_page()
+        
+        self.sidebar.setCurrentRow(0)
+
+    def init_studio_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setAlignment(Qt.AlignCenter)
+        
+        title = QLabel("Welcome to MagicFlow")
+        title.setStyleSheet("font-size: 32px; font-weight: bold; margin-bottom: 10px; color: #00E676;")
+        layout.addWidget(title)
+        
+        desc = QLabel("Turn your camera into a professional teaching surface.")
+        desc.setStyleSheet("font-size: 18px; color: #B0B0B0; margin-bottom: 40px;")
+        layout.addWidget(desc)
+        
+        self.record_btn = QPushButton("Start MagicFlow Studio")
+        self.record_btn.setFixedSize(300, 80)
+        self.record_btn.setStyleSheet("""
+            QPushButton { background-color: #00E676; color: #121212; font-size: 20px; font-weight: bold; border-radius: 40px; }
+            QPushButton:hover { background-color: #00C853; }
+        """)
+        self.record_btn.clicked.connect(self.start_studio)
+        layout.addWidget(self.record_btn)
+        
+        self.pages.addWidget(page)
+
+    def init_album_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        
+        title = QLabel("Recordings Archive")
+        title.setStyleSheet("font-size: 24px; font-weight: bold; color: #FFFFFF; margin: 20px;")
+        layout.addWidget(title)
+        
+        self.album_list = QListWidget()
+        self.album_list.setStyleSheet("background: #1E1E1E; border-radius: 10px; margin: 10px; color: #B0B0B0; font-size: 14px;")
+        self.album_list.itemDoubleClicked.connect(self.play_video)
+        layout.addWidget(self.album_list)
+        
+        refresh_btn = QPushButton("Refresh & Open Folder")
+        refresh_btn.setStyleSheet("padding: 10px; background: #2C2C2C; border-radius: 5px;")
+        refresh_btn.clicked.connect(self.refresh_album)
+        layout.addWidget(refresh_btn)
+        
+        self.pages.addWidget(page)
+
+    def init_gestures_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(40, 40, 40, 40)
+        
+        title = QLabel("Hand Gesture Guide")
+        title.setStyleSheet("font-size: 24px; font-weight: bold; color: #00E676; margin-bottom: 20px;")
+        layout.addWidget(title)
+        
+        gestures = [
+            ("✌️ Peace Sign", "Clear Digital Canvas"),
+            ("💍 Ring Finger Only", "START Recording"),
+            ("✋ Open Palm", "STOP Recording"),
+            ("☝️ Index Pointing", "Slide Control (Left/Right)"),
+            ("🤙 Pinky Finger Up", "Exit Studio"),
+            ("🤏 Pinch Index+Thumb", "Draw on Screen")
+        ]
+        
+        for g, d in gestures:
+            row = QLabel(f"<b>{g}:</b> {d}")
+            row.setStyleSheet("font-size: 18px; color: #E0E0E0; margin-bottom: 10px;")
+            layout.addWidget(row)
+        
+        layout.addStretch()
+        self.pages.addWidget(page)
+
+    def init_shortcuts_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(40, 40, 40, 40)
+        
+        title = QLabel("Keyboard Shortcuts")
+        title.setStyleSheet("font-size: 24px; font-weight: bold; color: #00E676; margin-bottom: 20px;")
+        layout.addWidget(title)
+        
+        shortcuts = [
+            ("R", "Toggle Recording (Start/Stop)"),
+            ("C", "Clear Canvas"),
+            ("Esc", "Exit Studio & Return to Dashboard"),
+            ("Left / Right", "Manual Slide Navigation")
+        ]
+        
+        for k, d in shortcuts:
+            row = QLabel(k.ljust(15) + " : " + d)
+            row.setStyleSheet("font-size: 18px; font-family: 'Courier New'; color: #B0B0B0; margin-bottom: 10px;")
+            layout.addWidget(row)
+            
+        layout.addStretch()
+        self.pages.addWidget(page)
+
+    def init_help_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setAlignment(Qt.AlignCenter)
+        
+        label = QLabel("Need help? Visit our documentation or contact support.")
+        label.setStyleSheet("font-size: 18px; color: #B0B0B0;")
+        layout.addWidget(label)
+        
+        self.pages.addWidget(page)
+
+    def display_page(self, i):
+        self.pages.setCurrentIndex(i)
+        if i == 1: self.refresh_album()
+
+    def refresh_album(self):
+        self.album_list.clear()
+        if os.path.exists("recordings"):
+            files = [f for f in os.listdir("recordings") if f.endswith(".mp4")]
+            files.sort(reverse=True)
+            for f in files:
+                self.album_list.addItem(f)
+
+    def play_video(self, item):
+        video_path = os.path.join("recordings", item.text())
+        if os.path.exists(video_path):
+            os.startfile(os.path.abspath(video_path))
+
+    def start_studio(self):
+        self.hide()
+        self.studio = MagicCanvas()
+        self.studio.closed_signal.connect(self.show)
+        self.studio.show()
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = MagicCanvas()
-    window.show()
+    launcher = MagicLauncher()
+    launcher.show()
     sys.exit(app.exec_())
